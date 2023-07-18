@@ -1,6 +1,7 @@
 package oryhydra
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
@@ -144,6 +145,15 @@ func resourceOAuth2Client() *schema.Resource {
 					"none", "client_secret_basic", "client_secret_post", "private_key_jwt",
 				}, false),
 			},
+			"front_channel_logout_uri": {
+				Type:     schema.TypeString,
+				Optional: true,
+			},
+			"front_channel_logout_session_required": {
+				Type:     schema.TypeBool,
+				Optional: true,
+				Default:  false,
+			},
 		},
 	}
 }
@@ -151,11 +161,11 @@ func resourceOAuth2Client() *schema.Resource {
 func resourceOAuth2ClientCreate(d *schema.ResourceData, m interface{}) error {
 	lg.Print("resourceOAuth2ClientCreate")
 
-	cli := m.(*admin.Client)
+	cli := m.(HydraClient).Hydra
 
 	resp, err := cli.CreateOAuth2Client(
 		admin.NewCreateOAuth2ClientParams().
-			WithBody(expandClient(d)),
+			WithBody(expandClientWithoutID(d)),
 	)
 	if err != nil {
 		return err
@@ -163,7 +173,16 @@ func resourceOAuth2ClientCreate(d *schema.ResourceData, m interface{}) error {
 
 	client := resp.Payload
 
-	d.SetId(client.ClientID)
+	// Update the client id through mysql
+	db := m.(HydraClient).DB
+	clientId := d.Get("client_id").(string)
+	update, err := db.Query(fmt.Sprintf("UPDATE hydra_client SET id = '%s' WHERE id = '%s'", clientId, client.ClientID))
+	if err != nil {
+		return err
+	}
+	defer update.Close()
+
+	d.SetId(clientId)
 
 	// NOTE: client secret is only returned on create/update, not read.
 	d.Set("client_secret", client.ClientSecret)
@@ -174,7 +193,7 @@ func resourceOAuth2ClientCreate(d *schema.ResourceData, m interface{}) error {
 func resourceOAuth2ClientRead(d *schema.ResourceData, m interface{}) error {
 	lg.Print("resourceOAuth2ClientRead")
 
-	cli := m.(*admin.Client)
+	cli := m.(HydraClient).Hydra
 
 	resp, err := cli.GetOAuth2Client(
 		admin.NewGetOAuth2ClientParams().
@@ -202,7 +221,7 @@ func resourceOAuth2ClientUpdate(d *schema.ResourceData, m interface{}) error {
 
 	client := expandClient(d)
 
-	cli := m.(*admin.Client)
+	cli := m.(HydraClient).Hydra
 
 	_, err := cli.UpdateOAuth2Client(
 		admin.NewUpdateOAuth2ClientParams().
@@ -222,7 +241,7 @@ func resourceOAuth2ClientUpdate(d *schema.ResourceData, m interface{}) error {
 func resourceOAuth2ClientDelete(d *schema.ResourceData, m interface{}) error {
 	lg.Print("resourceOAuth2ClientDelete")
 
-	cli := m.(*admin.Client)
+	cli := m.(HydraClient).Hydra
 
 	_, err := cli.DeleteOAuth2Client(
 		admin.NewDeleteOAuth2ClientParams().
@@ -238,7 +257,15 @@ func resourceOAuth2ClientDelete(d *schema.ResourceData, m interface{}) error {
 func expandClient(d *schema.ResourceData) *models.OAuth2Client {
 	lg.Print("expandClient")
 
-	clientID := d.Get("client_id").(string)
+	result := expandClientWithoutID(d)
+	result.ClientID = d.Get("client_id").(string)
+
+	return result
+}
+
+func expandClientWithoutID(d *schema.ResourceData) *models.OAuth2Client {
+	lg.Print("expandClientWithoutID")
+
 	clientSecret := d.Get("client_secret").(string)
 	clientName := d.Get("client_name").(string)
 	clientMetadata := d.Get("client_metadata")
@@ -294,26 +321,30 @@ func expandClient(d *schema.ResourceData) *models.OAuth2Client {
 	subjectType := d.Get("subject_type").(string)
 	tokenEndpointAuthMethod := d.Get("token_endpoint_auth_method").(string)
 
+	frontChannelLogoutUri := d.Get("front_channel_logout_uri").(string)
+	frontChannelLogoutSessionRequired := d.Get("front_channel_logout_session_required").(bool)
+
 	return &models.OAuth2Client{
-		ClientID:                clientID,
-		ClientName:              clientName,
-		ClientSecret:            clientSecret,
-		Metadata:                clientMetadata,
-		Scope:                   scope,
-		GrantTypes:              grantTypes,
-		ResponseTypes:           responseTypes,
-		Audience:                audience,
-		PostLogoutRedirectUris:  postLogoutRedirectUris,
-		RedirectUris:            redirectUris,
-		Owner:                   owner,
-		PolicyURI:               policyURI,
-		AllowedCorsOrigins:      allowedCorsOrigins,
-		TosURI:                  tosURI,
-		ClientURI:               clientURI,
-		LogoURI:                 logoURI,
-		Contacts:                contacts,
-		SubjectType:             subjectType,
-		TokenEndpointAuthMethod: tokenEndpointAuthMethod,
+		ClientName:                        clientName,
+		ClientSecret:                      clientSecret,
+		Metadata:                          clientMetadata,
+		Scope:                             scope,
+		GrantTypes:                        grantTypes,
+		ResponseTypes:                     responseTypes,
+		Audience:                          audience,
+		PostLogoutRedirectUris:            postLogoutRedirectUris,
+		RedirectUris:                      redirectUris,
+		Owner:                             owner,
+		PolicyURI:                         policyURI,
+		AllowedCorsOrigins:                allowedCorsOrigins,
+		TosURI:                            tosURI,
+		ClientURI:                         clientURI,
+		LogoURI:                           logoURI,
+		Contacts:                          contacts,
+		SubjectType:                       subjectType,
+		TokenEndpointAuthMethod:           tokenEndpointAuthMethod,
+		FrontchannelLogoutURI:             frontChannelLogoutUri,
+		FrontchannelLogoutSessionRequired: frontChannelLogoutSessionRequired,
 	}
 }
 
@@ -341,4 +372,6 @@ func flattenClient(d *schema.ResourceData, client *models.OAuth2Client) {
 	d.Set("contacts", client.Contacts)
 	d.Set("subject_type", client.SubjectType)
 	d.Set("token_endpoint_auth_method", client.TokenEndpointAuthMethod)
+	d.Set("front_channel_logout_uri", client.FrontchannelLogoutURI)
+	d.Set("front_channel_logout_session_required", client.FrontchannelLogoutSessionRequired)
 }

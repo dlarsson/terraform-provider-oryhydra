@@ -4,7 +4,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/plugin"
 	"github.com/hashicorp/terraform-plugin-sdk/terraform"
 
-	"github.com/hypnoglow/terraform-provider-oryhydra/oryhydra"
+	"github.com/dlarsson/terraform-provider-oryhydra/oryhydra"
 )
 
 func main() {

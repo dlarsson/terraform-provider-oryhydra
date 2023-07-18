@@ -36,7 +36,7 @@ linters:
 
 linters-settings:
   goimports:
-    local-prefixes: github.com/hypnoglow/terraform-provider-oryhydra
+    local-prefixes: github.com/dlarsson/terraform-provider-oryhydra
 
 issues:
   exclude-rules:

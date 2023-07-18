@@ -2,11 +2,13 @@ package oryhydra
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/url"
 
 	httptransport "github.com/go-openapi/runtime/client"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/hashicorp/go-cleanhttp"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	hydra "github.com/ory/hydra-client-go/client"
@@ -22,6 +24,21 @@ func Provider() *schema.Provider {
 				Type:        schema.TypeString,
 				Required:    true,
 				DefaultFunc: schema.EnvDefaultFunc("ORY_HYDRA_URL", nil),
+			},
+			"dbhost": {
+				Type:        schema.TypeString,
+				Required:    true,
+				DefaultFunc: schema.EnvDefaultFunc("ORY_HYDRA_DB_HOST", nil),
+			},
+			"dbuser": {
+				Type:        schema.TypeString,
+				Required:    true,
+				DefaultFunc: schema.EnvDefaultFunc("ORY_HYDRA_DB_USER", nil),
+			},
+			"dbpassword": {
+				Type:        schema.TypeString,
+				Required:    true,
+				DefaultFunc: schema.EnvDefaultFunc("ORY_HYDRA_DB_PASSWORD", nil),
 			},
 			"oauth2_token_url": {
 				Type:         schema.TypeString,
@@ -54,8 +71,26 @@ func Provider() *schema.Provider {
 	}
 }
 
+type HydraClient struct {
+	Hydra admin.ClientService
+	DB    *sql.DB
+}
+
 func configure(data *schema.ResourceData) (interface{}, error) {
 	adminURL := data.Get("url").(string)
+	dbHost := data.Get("dbhost").(string)
+	dbUser := data.Get("dbuser").(string)
+	dbPasswd := data.Get("dbpassword").(string)
+	dbConnectString := fmt.Sprintf("%s:%s@tcp(%s)/hydra", dbUser, dbPasswd, dbHost)
+
+	hydra := new(HydraClient)
+
+	if db, err := sql.Open("mysql", dbConnectString); err != nil {
+		return nil, fmt.Errorf("Failed to connect to %s/hydra as %s", dbHost, dbUser)
+	} else {
+		hydra.DB = db
+		defer db.Close()
+	}
 
 	httpClient := cleanhttp.DefaultClient()
 
@@ -75,7 +110,8 @@ func configure(data *schema.ResourceData) (interface{}, error) {
 	}
 
 	client, err := newHydraClient(adminURL, httpClient)
-	return client, err
+	hydra.Hydra = client
+	return hydra, err
 }
 
 // newHydraClient returns a new configured hydra client.
